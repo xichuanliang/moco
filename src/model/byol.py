@@ -37,48 +37,10 @@ class Byol_Model(nn.Module):
             param_k.data.copy_(param_q.data)
             param_k.requires_grad = False
 
-        # Create the queue to store negative samples
-        # self.register_buffer("queue", torch.randn(self.queue_size, 32))
-
-        # Create pointer to store current position in the queue when enqueue and dequeue
-        # self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
-
-
     @torch.no_grad()
     def momentum_update(self):
         for p_q, p_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
             p_k.data = p_k.data * self.momentum + p_q.detach().data * (1. - self.momentum)
-
-
-
-    @torch.no_grad()
-    def shuffled_idx(self, batch_size):
-        '''
-        Generation of the shuffled indexes for the implementation of ShuffleBN.
-
-        https://github.com/HobbitLong/CMC.
-
-        args:
-            batch_size (Tensor.int()):  Number of samples in a batch
-
-        returns:
-            shuffled_idxs (Tensor.long()): A random permutation index order for the shuffling of the current minibatch
-
-            reverse_idxs (Tensor.long()): A reverse of the random permutation index order for the shuffling of the
-                                            current minibatch to get back original sample order
-
-        '''
-
-        # Generate shuffled indexes
-        shuffled_idxs = torch.randperm(batch_size).long().cpu()
-
-        reverse_idxs = torch.zeros(batch_size).long().cpu()
-
-        value = torch.arange(batch_size).long().cpu()
-
-        reverse_idxs.index_copy_(0, shuffled_idxs, value)
-
-        return shuffled_idxs, reverse_idxs
 
 
     def forward(self, x_q, x_k):
@@ -92,23 +54,23 @@ class Byol_Model(nn.Module):
 
         # TODO: shuffle ids with distributed data parallel
         # Get shuffled and reversed indexes for the current minibatch
-        shuffled_idxs, reverse_idxs = self.shuffled_idx(batch_size)
+        # shuffled_idxs, reverse_idxs = self.shuffled_idx(batch_size)
 
         with torch.no_grad():
             # Update the key encoder
             self.momentum_update()
 
             # Shuffle minibatch
-            x_k = x_k[shuffled_idxs]
-            x_q = x_q[shuffled_idxs]
+            # x_k = x_k[shuffled_idxs]
+            # x_q = x_q[shuffled_idxs]
 
             # Feature representations of the shuffled key view from the key encoder
             feat_k = self.encoder_k(x_k)
             feat_q_byol2 = self.encoder_k(x_q)
 
             # reverse the shuffled samples to original position
-            feat_k = feat_k[reverse_idxs]
-            feat_q_byol2 = feat_q_byol2[reverse_idxs]
+            # feat_k = feat_k[reverse_idxs]
+            # feat_q_byol2 = feat_q_byol2[reverse_idxs]
 
         # Compute the logits for the InfoNCE contrastive loss.
         logit2 = loss_fn(feat_q_byol1, feat_k)

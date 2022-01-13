@@ -105,11 +105,11 @@ class MoCo_Model(nn.Module):
         '''
 
         # Generate shuffled indexes
-        shuffled_idxs = torch.randperm(batch_size).long().cpu()
+        shuffled_idxs = torch.randperm(batch_size).long().cuda()
 
-        reverse_idxs = torch.zeros(batch_size).long().cpu()
+        reverse_idxs = torch.zeros(batch_size).long().cuda()
 
-        value = torch.arange(batch_size).long().cpu()
+        value = torch.arange(batch_size).long().cuda()
 
         reverse_idxs.index_copy_(0, shuffled_idxs, value)
 
@@ -191,7 +191,7 @@ class MoCo_Model(nn.Module):
         # logits_change /= self.temperature
 
         # Create labels, first logit is postive, all others are negative
-        labels = torch.zeros(logits.shape[0], dtype=torch.long).cpu()
+        labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
 
         # return logits, labels , logits_change
         return logits, labels
@@ -220,16 +220,16 @@ class MoCo_Model(nn.Module):
 
         # TODO: shuffle ids with distributed data parallel
         # Get shuffled and reversed indexes for the current minibatch
-        shuffled_idxs, reverse_idxs = self.shuffled_idx(batch_size)
+        # shuffled_idxs, reverse_idxs = self.shuffled_idx(batch_size)
 
         with torch.no_grad():
             # Update the key encoder
             self.momentum_update()
 
             # Shuffle minibatch
-            x_k = x_k[shuffled_idxs]
-            x_a = x_a[shuffled_idxs]
-            x_q = x_q[shuffled_idxs]
+            # x_k = x_k[shuffled_idxs]
+            # x_a = x_a[shuffled_idxs]
+            # x_q = x_q[shuffled_idxs]
 
             # Feature representations of the shuffled key view from the key encoder
             feat_k = self.encoder_k(x_k)
@@ -237,9 +237,9 @@ class MoCo_Model(nn.Module):
             feat_q_byol2 = self.encoder_k(x_q)
 
             # reverse the shuffled samples to original position
-            feat_k = feat_k[reverse_idxs]
-            feat_a_byol1 = feat_a_byol1[reverse_idxs]
-            feat_q_byol2 = feat_q_byol2[reverse_idxs]
+            # feat_k = feat_k[reverse_idxs]
+            # feat_a_byol1 = feat_a_byol1[reverse_idxs]
+            # feat_q_byol2 = feat_q_byol2[reverse_idxs]
 
         # Compute the logits for the InfoNCE contrastive loss.
         # logit, label, logit_change = self.InfoNCE_logits(feat_q, feat_k)

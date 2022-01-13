@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from utils import loss_fn
 from model.mlp_head import MLPHead as MLPHead
+import torch.distributed
 
 import model.network as models
 
@@ -279,9 +280,12 @@ def concat_all_gather(tensor):
     Performs all_gather operation on the provided tensors.
     *** Warning ***: torch.distributed.all_gather has no gradient.
     """
-    tensors_gather = [torch.ones_like(tensor)
+    tensors_gather = [torch.ones_like(tensor)                           #torch.ones_like生成  tensor大小的全是1的List
         for _ in range(torch.distributed.get_world_size())]
-    torch.distributed.all_gather(tensors_gather, tensor, async_op=False)
+    print(tensors_gather)
+    print(tensor)
+    print(tensor.shape)
+    torch.distributed.all_gather(tensors_gather, tensor, async_op=False)        # 这个函数之前不能normalize，即x_k ?
 
     output = torch.cat(tensors_gather, dim=0)
     return output

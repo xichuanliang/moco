@@ -76,15 +76,15 @@ def pretrain(encoder, dataloaders, args):
             # x_i, x_j, x_k = torch.split(inputs, [3, 3, 3], dim=1)
 
             # Get the encoder representation
-            logit, label = encoder(x_i, x_j)
+            # logit, label = encoder(x_i, x_j)
             # logit1, logit_byol, label = encoder(x_i, x_j, x_k)
-            # logit = encoder(x_i, x_j)
+            logit = encoder(x_i, x_j)
 
-            loss = criterion(logit, label)
+            # loss = criterion(logit, label)
             # loss1 = criterion(logit1, label)
             # loss2 = logit_byol
-            # loss =  1 *loss1 + 1 * loss2
-            # loss = logit
+            # loss =  1 *loss1 + 6 * loss2
+            loss = logit                       #双GPU的时候，loss直接出问题
 
             loss.backward()
 

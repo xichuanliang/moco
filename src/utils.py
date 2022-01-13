@@ -208,10 +208,12 @@ def random_split_image_folder(data, labels, n_classes, n_samples_per_class):
         # get n unique class 'c' samples
         valid_samples = np.random.choice(c_idx, n_samples_per_class[i], replace=False)
         # get remaining samples of class 'c'
-        train_samples = np.setdiff1d(c_idx, valid_samples)
+        # train_samples = np.setdiff1d(c_idx, valid_samples)
         # assign class c samples to validation, and remaining to training
-        train_x.extend(data[train_samples])
-        train_y.extend(labels[train_samples])
+        # train_x.extend(data[train_samples])
+        # train_y.extend(labels[train_samples])
+        train_x.extend(data[c_idx])
+        train_y.extend(labels[c_idx])
         valid_x.extend(data[valid_samples])
         valid_y.extend(labels[valid_samples])
 
@@ -236,10 +238,12 @@ def random_split(data, labels, n_classes, n_samples_per_class):
         # get n unique class 'c' samples
         valid_samples = np.random.choice(c_idx, n_samples_per_class[i], replace=False)
         # get remaining samples of class 'c'
-        train_samples = np.setdiff1d(c_idx, valid_samples)    #找到2个数组中集合元素的差异
+        # train_samples = np.setdiff1d(c_idx, valid_samples)    #找到2个数组中集合元素的差异
         # assign class c samples to validation, and remaining to training
-        train_x.extend(data[train_samples])
-        train_y.extend(labels[train_samples])
+        # train_x.extend(data[train_samples])
+        # train_y.extend(labels[train_samples])
+        train_x.extend(data[c_idx])
+        train_y.extend(labels[c_idx])
         valid_x.extend(data[valid_samples])
         valid_y.extend(labels[valid_samples])
 

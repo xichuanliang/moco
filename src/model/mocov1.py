@@ -55,8 +55,8 @@ class MoCov1_Model(nn.Module):
             args, num_classes=128)  # Key Encoder
 
         # moco v2
-        self.encoder_q.fc = models.projection_MLP(args)
-        self.encoder_k.fc = models.projection_MLP(args)
+        # self.encoder_q.fc = models.projection_MLP(args)
+        # self.encoder_k.fc = models.projection_MLP(args)
 
         # Initialize the key encoder to have the same values as query encoder
         # Do not update the key encoder via gradient

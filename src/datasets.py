@@ -360,6 +360,8 @@ def cifar_dataloader(args, dataset_paths):
         dataloaders (): pretrain,train,valid,train_valid,test set split dataloaders.
     '''
 
+    guassian_blur = transforms.RandomApply([GaussianBlur(args.blur_sigma)], p=args.blur_p)
+
     # brigntness:亮度 constrast:对比度 saturation:饱和度 hue:色调
     color_jitter = transforms.ColorJitter(
         0.8*args.jitter_d, 0.8*args.jitter_d, 0.8*args.jitter_d, 0.2*args.jitter_d)
@@ -373,6 +375,7 @@ def cifar_dataloader(args, dataset_paths):
             transforms.ToPILImage(),     #将tensor 或者 ndarray的数据转换为 PIL Image 类型数据
             rnd_color_jitter,
             rnd_grey,
+            guassian_blur,
             transforms.RandomResizedCrop((args.crop_dim, args.crop_dim), scale=(0.25, 1.0)),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
@@ -399,7 +402,7 @@ def cifar_dataloader(args, dataset_paths):
 
         datasets = {i: CIFAR10(root=dataset_paths[i], transform=transf[i],
                                train=config[i], download=True) for i in config.keys()}
-        val_samples = 500
+        val_samples = 500  #500
 
     elif args.dataset == 'cifar100':
 

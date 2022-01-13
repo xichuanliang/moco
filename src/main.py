@@ -11,6 +11,7 @@ import datetime
 
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel
+import torch.distributed
 
 from train import finetune, evaluate, pretrain, supervised
 from datasets import get_dataloaders
@@ -22,6 +23,8 @@ from model.mocov2_byol_2t1m import MoCo_byol_2t1m_Model
 from model.moco_exchange import MoCo_Model_Exchange
 from model.mocov1 import MoCov1_Model
 from model.offical_moco import Offical_MoCov1_Model
+from model.simsam import SimSam_Model
+from model.SimClr import SimClr_Model
 
 
 warnings.filterwarnings("ignore")
@@ -59,7 +62,7 @@ parser.add_argument('--finetune_weight_decay', type=float, default=0.0,
                     help='Linear Classification Training Weight Decay Regularisation Factor.')
 parser.add_argument('--optimiser', default='sgd',
                     help='Optimiser, (Options: sgd, adam, lars).')
-parser.add_argument('--patience', default=50, type=int,
+parser.add_argument('--patience', default=60, type=int,
                     help='Number of Epochs to Wait for Improvement.')
 parser.add_argument('--queue_size', type=int, default=65536,
                     help='Size of Memory Queue, Must be Divisible by batch_size.')
@@ -127,7 +130,7 @@ def setup(distributed):
         local_rank = None
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    seed = 44
+    seed = 1337
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -186,12 +189,14 @@ def main():
     # moco = MoCo_Model(args, queue_size=args.queue_size,
     #                   momentum=args.queue_momentum, temperature=args.temperature)
     # byol = Byol_Model(args, momentum=args.queue_momentum)
+    simsam = SimSam_Model(args, momentum=args.queue_momentum)
+    # simclr = SimClr_Model(args)
     # moco_byol_2t1m = MoCo_byol_2t1m_Model(args, queue_size=args.queue_size,
     #                   momentum=args.queue_momentum, temperature=args.temperature)
     # moco_exchange = MoCo_Model_Exchange(args, queue_size=args.queue_size,
     #                   momentum=args.queue_momentum, temperature=args.temperature)
-    mocov1 = MoCov1_Model(args, queue_size=args.queue_size,
-                      momentum=args.queue_momentum, temperature=args.temperature)
+    # mocov1 = MoCov1_Model(args, queue_size=args.queue_size,
+    #                   momentum=args.queue_momentum, temperature=args.temperature)
     # offical_moco = Offical_MoCov1_Model(args, queue_size=args.queue_size,
     #                   momentum=args.queue_momentum, temperature=args.temperature)
 
@@ -200,7 +205,7 @@ def main():
         torch.cuda.set_device(device)
         torch.set_num_threads(6)  # n cpu threads / n processes per node
 
-        mocov1 = DistributedDataParallel(mocov1.cuda(),
+        offical_moco = DistributedDataParallel(offical_moco.cuda(),
                                        device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True, broadcast_buffers=False)
         base_encoder = DistributedDataParallel(base_encoder.cuda(),
                                                device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True, broadcast_buffers=False)
@@ -209,13 +214,13 @@ def main():
         args.print_progress = True if int(os.environ.get('RANK')) == 0 else False
     else:
         # If non Distributed use DataParallel
-        if torch.cuda.device_count() > 1:
-            mocov1 = nn.DataParallel(mocov1)
-            base_encoder = nn.DataParallel(base_encoder)
+        # if torch.cuda.device_count() > 1:
+        #     offical_moco = nn.DataParallel(offical_moco)
+        #     base_encoder = nn.DataParallel(base_encoder)
+        #
+        # print('\nUsing', torch.cuda.device_count(), 'GPU(s).\n')
 
-        print('\nUsing', torch.cuda.device_count(), 'GPU(s).\n')
-
-        mocov1.to(device)
+        simsam.to(device)
         base_encoder.to(device)
 
         args.print_progress = True
@@ -234,7 +239,7 @@ def main():
 
         if not args.supervised:
             # Pretrain the encoder and projection head
-            pretrain(mocov1, dataloaders, args)
+            pretrain(simsam, dataloaders, args)
 
             # Load the state_dict from query encoder and load it on finetune net
             base_encoder = load_moco(base_encoder, args)
