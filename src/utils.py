@@ -48,14 +48,31 @@ def load_moco(base_encoder, args):
     state_dict = checkpoint['moco']
     for k in list(state_dict.keys()):
         # retain only encoder_q up to before the embedding layer
-        if k.startswith('encoder_q') and not k.startswith('encoder_q.fc'):
+        # if k.startswith('encoder_q') and not k.startswith('encoder_q.fc'):
+        print(k)
+        # if k.startswith('encoder_q') and k.startswith('encoder_q.head'):
+        #     del state_dict[k]
+        if k.startswith('encoder_q'):
             # remove prefix
             state_dict[k[len("encoder_q."):]] = state_dict[k]
         # delete renamed or unused k
         del state_dict[k]
 
+        #if k.startswith('dense_head'):
+        #    del state_dict[k]
+        #if k == 'dense_head.0.weight':
+        #    del state_dict[k]
+
+    for k in list(state_dict.keys()):
+        print(k)
+        if "head" in k:
+            del state_dict[k]
+
     # Load the encoder parameters
+    print(state_dict.keys())
     base_encoder.load_state_dict(state_dict, strict=False)
+    #print(base_encoder.named_parameters)
+    #print(base_encoder)
 
     return base_encoder
 
@@ -177,12 +194,12 @@ class CustomDataset(Dataset):
             img2 = self.transform(image)
 
             #change
-            # img3 = self.transform(image)
+            img3 = self.transform(image)
 
-            # Combine the views to pass to the model    dim=0，按行拼接，dim=1，按列拼接
-            img = torch.cat([img, img2], dim=0)
+            # Combine the views to pass to the model    dim=0，按行拼接，dim=1，按列拼�?
+            # img = torch.cat([img, img2], dim=0)
 
-            # img = torch.cat([img, img2, img3], dim=0)
+            img = torch.cat([img, img2, img3], dim=0)
 
         # when STL10 'unlabelled'
         if self.labels is None:
@@ -229,7 +246,7 @@ def random_split(data, labels, n_classes, n_samples_per_class):
 
     train_x, train_y, valid_x, valid_y = [], [], [], []
 
-    if isinstance(labels, list):        #isinstance判断是否为已知类型
+    if isinstance(labels, list):        #isinstance判断是否为已知类�?
         labels = np.array(labels)
 
     for i in range(n_classes):
@@ -238,7 +255,7 @@ def random_split(data, labels, n_classes, n_samples_per_class):
         # get n unique class 'c' samples
         valid_samples = np.random.choice(c_idx, n_samples_per_class[i], replace=False)
         # get remaining samples of class 'c'
-        # train_samples = np.setdiff1d(c_idx, valid_samples)    #找到2个数组中集合元素的差异
+        # train_samples = np.setdiff1d(c_idx, valid_samples)    #找到2个数组中集合元素的差�?
         # assign class c samples to validation, and remaining to training
         # train_x.extend(data[train_samples])
         # train_y.extend(labels[train_samples])

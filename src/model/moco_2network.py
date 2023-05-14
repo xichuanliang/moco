@@ -6,10 +6,9 @@ from utils import loss_fn
 from model.mlp_head import MLPHead as MLPHead
 
 import model.network as models
-import model.swin_transformer as models_swin
 
 
-class MoCo_Model(nn.Module):
+class MoCo_Model_2network(nn.Module):
     def __init__(self, args, queue_size=65536, momentum=0.999, temperature=0.07):
         '''
         MoCoV2 model, taken from: https://github.com/facebookresearch/moco.
@@ -40,7 +39,7 @@ class MoCo_Model(nn.Module):
             label (Tensor): Labels of the positve and negative logits to be used in softmax cross entropy. (bsz, 1)
 
         '''
-        super(MoCo_Model, self).__init__()
+        super(MoCo_Model_2network, self).__init__()
 
         self.queue_size = queue_size
         self.momentum = momentum
@@ -49,25 +48,17 @@ class MoCo_Model(nn.Module):
         assert self.queue_size % args.batch_size == 0  # for simplicity
 
         # Load model
-        # self.encoder_q = getattr(models, args.model)(
-        #     args, num_classes=128)  # Query Encoder
+        self.encoder_q = getattr(models, args.model)(
+            args, num_classes=128)  # Query Encoder
 
-        args.n_classes = 128
-        self.encoder_q = getattr(models_swin, args.model)(
-            args)  # Query Encoder
-
-        # self.encoder_k = getattr(models, args.model)(
-        #     args, num_classes=128)  # Key Encoder
-        self.encoder_k = getattr(models_swin, args.model)(
-            args)  # Key Encoder
+        self.encoder_k = getattr(models, args.model)(
+            args, num_classes=128)  # Key Encoder
         # common mlp head
         self.prodictor = MLPHead(in_channels=128)
-        self.anotherPro = MLPHead(in_channels=128)
 
         # Add the mlp head
-        # self.encoder_q.fc = models.projection_MLP(args)
-        # self.encoder_k.fc = models.projection_MLP(args)
-
+        self.encoder_q.fc = models.projection_MLP(args)
+        self.encoder_k.fc = models.projection_MLP(args)
 
         # Initialize the key encoder to have the same values as query encoder
         # Do not update the key encoder via gradient
@@ -205,16 +196,15 @@ class MoCo_Model(nn.Module):
         # return logits, labels , logits_change
         return logits, labels
 
-    def forward(self, x_q, x_k, x_a):
+    def forward(self, x_q, x_k):
         #knn
-        f_mem = self.queue.clone().detach()
+        # f_mem = self.queue.clone().detach()
         # f_mem = nn.functional.normalize(f_mem, dim=1)
 
         batch_size = x_q.size(0)
 
         # Feature representations of the query view from the query encoder
         feat_q = self.encoder_q(x_q)
-        feat_q = self.prodictor(feat_q)
         #knn
         # q_queue_knn= torch.mm(feat_q, f_mem.transpose(1, 0))
         # feat_q_knn1 = f_mem[torch.argmax(q_queue_knn,1)]
@@ -225,12 +215,8 @@ class MoCo_Model(nn.Module):
         # feat_a_byol2 = self.prodictor(feat_a_knn1)
 
         #moco+byol
-        feat_q_byol1 = self.anotherPro(feat_q)
-        feat_a_byol2 = self.anotherPro(self.prodictor(self.encoder_q(x_a)))
-        # feat_k_byol2 = self.prodictor(self.encoder_q(x_k))
-        
-        # feat_q_byol1 = feat_q
-        # feat_a_byol2 = self.encoder_q(x_a)
+        feat_q_byol1 = self.prodictor(feat_q)
+        feat_k_byol2 = self.prodictor(self.encoder_q(x_k))
 
         # TODO: shuffle ids with distributed data parallel
         # Get shuffled and reversed indexes for the current minibatch
@@ -247,10 +233,8 @@ class MoCo_Model(nn.Module):
 
             # Feature representations of the shuffled key view from the key encoder
             feat_k = self.encoder_k(x_k)
-            feat_k = self.prodictor(feat_k)
-            feat_a_byol1 = self.prodictor(self.encoder_k(x_a))
-            feat_q_byol2 = self.prodictor(self.encoder_k(x_q))
-            # feat_k_byol1 = self.encoder_k(x_k)
+            # feat_a_byol1 = self.encoder_k(x_a)
+            feat_q_byol2 = self.encoder_k(x_q)
 
             # reverse the shuffled samples to original position
             # feat_k = feat_k[reverse_idxs]
@@ -261,10 +245,8 @@ class MoCo_Model(nn.Module):
         # logit, label, logit_change = self.InfoNCE_logits(feat_q, feat_k)
         # logit, label = self.InfoNCE_logits(feat_q, feat_k)
         logit1, label = self.InfoNCE_logits(feat_q, feat_k)
-        logit2 = loss_fn(feat_q_byol1, feat_a_byol1)
-        logit3 = loss_fn(feat_a_byol2, feat_q_byol2)
-        # logit2 = loss_fn(feat_q_byol1, feat_k_byol1)
-        # logit3 = loss_fn(feat_k_byol2, feat_q_byol2)
+        logit2 = loss_fn(feat_q_byol1, feat_k)
+        logit3 = loss_fn(feat_k_byol2, feat_q_byol2)
         # logit = 0.5 * (logit2 + logit3).mean() + 0.5 * logit1
 
         logit_byol = (logit2 + logit3).mean()

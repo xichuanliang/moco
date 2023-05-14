@@ -15,5 +15,5 @@ class MLPHead(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-
+# mlp_hidden_size=512 projection_size=128
 

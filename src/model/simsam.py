@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from model.mlp_head import MLPHead as MLPHead
 import model.network as models
 
 
@@ -20,10 +20,10 @@ class SimSam_Model(nn.Module):
         # self.encoder_k = getattr(models, args.model)(
         #     args, num_classes=128)  # Key Encoder
 
-        self.prodictor = projection_MLP(in_dim = 128)
+        self.prodictor = MLPHead(in_channels=128)
 
         # Add the mlp head
-        # self.encoder_q.fc = models.projection_MLP(args)
+        self.encoder_q.fc = projection_2MLP(in_dim = 512)
         # self.encoder_k.fc = models.projection_MLP(args)
 
     def D(self, p, z):  # negative cosine similarity
@@ -71,6 +71,46 @@ class projection_MLP(nn.Module):
             nn.BatchNorm1d(out_dim)
         )
         self.num_layers = 3
+
+    def set_layers(self, num_layers):
+        self.num_layers = num_layers
+
+    def forward(self, x):
+        if self.num_layers == 3:
+            x = self.layer1(x)
+            x = self.layer2(x)
+            x = self.layer3(x)
+        elif self.num_layers == 2:
+            x = self.layer1(x)
+            x = self.layer3(x)
+        else:
+            raise Exception
+        return x
+
+class projection_2MLP(nn.Module):
+    def __init__(self, in_dim, hidden_dim=512, out_dim=128):
+        super().__init__()
+        ''' page 3 baseline setting
+        Projection MLP. The projection MLP (in f) has BN ap-
+        plied to each fully-connected (fc) layer, including its out- 
+        put fc. Its output fc has no ReLU. The hidden fc is 2048-d. 
+        This MLP has 3 layers.
+        '''
+        self.layer1 = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(inplace=True)
+        )
+        self.layer2 = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(inplace=True)
+        )
+        self.layer3 = nn.Sequential(
+            nn.Linear(hidden_dim, out_dim),
+            nn.BatchNorm1d(out_dim)
+        )
+        self.num_layers = 2
 
     def set_layers(self, num_layers):
         self.num_layers = num_layers

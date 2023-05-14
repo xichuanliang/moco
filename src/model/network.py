@@ -218,6 +218,24 @@ class ResNet(nn.Module):
                                 norm_layer=norm_layer))
 
         return nn.Sequential(*layers)
+        
+    #change
+    #def forward(self, x):
+     #   x = self.conv1(x)
+      #  x = self.bn1(x)
+       # x = self.relu(x)
+        #x = self.maxpool(x)
+
+        #x = self.layer1(x)
+        #x = self.layer2(x)
+        #x = self.layer3(x)
+        #feat = self.layer4(x)
+
+        #x = self.avgpool(feat)
+        #x = torch.flatten(x, 1)
+
+        #logits = self.fc(x)
+        #return logits, feat
 
     def forward(self, x):
         x = self.conv1(x)
@@ -357,6 +375,8 @@ class projection_MLP(nn.Module):
             n_channels = 512
         elif args.model == 'resnet50' or args.model == 'resnet101' or args.model == 'resnet152':
             n_channels = 2048
+        elif args.model == 'swin_tiny_patch4_window7_224':
+            n_channels = 768
         else:
             raise NotImplementedError('model not supported: {}'.format(args.model))
 
@@ -365,10 +385,23 @@ class projection_MLP(nn.Module):
         self.projection_head.add_module('W1', nn.Linear(
             n_channels, n_channels))
         # change
-        # self.projection_head.add_module('BN', nn.BatchNorm1d(n_channels))
+        self.projection_head.add_module('BN', nn.BatchNorm1d(n_channels))
         self.projection_head.add_module('ReLU', nn.ReLU())
         self.projection_head.add_module('W2', nn.Linear(
             n_channels, 128))
 
     def forward(self, x):
         return self.projection_head(x)
+        
+class dense_Head(nn.Module):
+    def __init__(self, args):
+        super(dense_Head, self).__init__()
+
+        self.dense_head = nn.Sequential(
+            nn.Conv2d(512 , 512, 1, 1, 0, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512 , 128, 1, 1, 0, bias=True)
+        )
+
+    def forward(self, x):
+        return self.dense_head(x)

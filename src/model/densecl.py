@@ -6,10 +6,10 @@ from utils import loss_fn
 from model.mlp_head import MLPHead as MLPHead
 
 import model.network as models
-import model.swin_transformer as models_swin
+from .cutmix import CutMixer
 
 
-class MoCo_Model(nn.Module):
+class Densecl_Model(nn.Module):
     def __init__(self, args, queue_size=65536, momentum=0.999, temperature=0.07):
         '''
         MoCoV2 model, taken from: https://github.com/facebookresearch/moco.
@@ -40,34 +40,31 @@ class MoCo_Model(nn.Module):
             label (Tensor): Labels of the positve and negative logits to be used in softmax cross entropy. (bsz, 1)
 
         '''
-        super(MoCo_Model, self).__init__()
+        super(Densecl_Model, self).__init__()
 
         self.queue_size = queue_size
         self.momentum = momentum
         self.temperature = temperature
+        self.T = 0.07
 
         assert self.queue_size % args.batch_size == 0  # for simplicity
 
         # Load model
-        # self.encoder_q = getattr(models, args.model)(
-        #     args, num_classes=128)  # Query Encoder
+        self.encoder_q = getattr(models, args.model)(
+            args, num_classes=128)  # Query Encoder
 
-        args.n_classes = 128
-        self.encoder_q = getattr(models_swin, args.model)(
-            args)  # Query Encoder
-
-        # self.encoder_k = getattr(models, args.model)(
-        #     args, num_classes=128)  # Key Encoder
-        self.encoder_k = getattr(models_swin, args.model)(
-            args)  # Key Encoder
+        self.encoder_k = getattr(models, args.model)(
+            args, num_classes=128)  # Key Encoder
         # common mlp head
-        self.prodictor = MLPHead(in_channels=128)
-        self.anotherPro = MLPHead(in_channels=128)
+        self.prodictor = models.dense_Head(args)
 
         # Add the mlp head
-        # self.encoder_q.fc = models.projection_MLP(args)
-        # self.encoder_k.fc = models.projection_MLP(args)
-
+        self.encoder_q.fc = models.projection_MLP(args)
+        self.encoder_k.fc = models.projection_MLP(args)
+        
+        
+        #self.encoder_q.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_q.fc)
+        #self.encoder_k.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_k.fc)
 
         # Initialize the key encoder to have the same values as query encoder
         # Do not update the key encoder via gradient
@@ -76,10 +73,19 @@ class MoCo_Model(nn.Module):
             param_k.requires_grad = False
 
         # Create the queue to store negative samples
-        self.register_buffer("queue", torch.randn(self.queue_size, 128))
+        # self.register_buffer("queue", torch.randn(self.queue_size, 128))
 
         # Create pointer to store current position in the queue when enqueue and dequeue
+        # self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
+
+        self.register_buffer("queue", torch.randn(128, 65536))
+        self.register_buffer("queue_dense", torch.randn(128, 65536))
+        self.queue = nn.functional.normalize(self.queue, dim=0)
+        self.queue_dense = nn.functional.normalize(self.queue_dense, dim=0)
+
         self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
+        self.crit_cls = nn.CrossEntropyLoss()
+        self.crit_dense = nn.CrossEntropyLoss()
 
     @torch.no_grad()
     def momentum_update(self):
@@ -125,31 +131,22 @@ class MoCo_Model(nn.Module):
         return shuffled_idxs, reverse_idxs
 
     @torch.no_grad()
-    def update_queue(self, feat_k):
-        '''
-        Update the memory / queue.
+    def _dequeue_and_enqueue(self, keys, dense_keys):
+        # gather keys before updating queue
+        # keys = concat_all_gather(keys)
+        dense_keys = nn.functional.normalize(dense_keys.mean(dim=2), dim=1)
+        # dense_keys = concat_all_gather(dense_keys)
 
-        Add batch to end of most recent sample index and remove the oldest samples in the queue.
-
-        Store location of most recent sample index (ptr).
-
-        Taken from: https://github.com/facebookresearch/moco
-
-        args:
-            feat_k (Tensor): Feature reprentations of the view x_k computed by the key_encoder.
-        '''
-
-        batch_size = feat_k.size(0)
+        batch_size = keys.shape[0]
 
         ptr = int(self.queue_ptr)
+        assert 65536 % batch_size == 0  # for simplicity
 
         # replace the keys at ptr (dequeue and enqueue)
-        self.queue[ptr:ptr + batch_size, :] = feat_k
+        self.queue[:, ptr:ptr + batch_size] = keys.T
+        self.queue_dense[:, ptr:ptr + batch_size] = dense_keys.T
+        ptr = (ptr + batch_size) % 65536 # move pointer
 
-        # move pointer along to end of current batch
-        ptr = (ptr + batch_size) % self.queue_size
-
-        # Store queue pointer as register_buffer
         self.queue_ptr[0] = ptr
 
     def InfoNCE_logits(self, f_q, f_k):
@@ -205,16 +202,28 @@ class MoCo_Model(nn.Module):
         # return logits, labels , logits_change
         return logits, labels
 
-    def forward(self, x_q, x_k, x_a):
+
+    def forward(self, x_q, x_k):
         #knn
-        f_mem = self.queue.clone().detach()
+        # f_mem = self.queue.clone().detach()
         # f_mem = nn.functional.normalize(f_mem, dim=1)
 
         batch_size = x_q.size(0)
 
         # Feature representations of the query view from the query encoder
-        feat_q = self.encoder_q(x_q)
-        feat_q = self.prodictor(feat_q)
+        # feat_q = self.encoder_q(x_q)
+        # q = feat_q
+        # dense_q = feat_q
+        q, feat_q = self.encoder_q(x_q)  # queries: NxC
+        dense_q = self.prodictor(feat_q)
+        q = nn.functional.normalize(q, dim=1)
+
+        n, c, h, w = feat_q.size()
+        dim_dense = dense_q.size(1)
+        dense_q, feat_q = dense_q.view(n, dim_dense, -1), feat_q.view(n, c, -1)
+        dense_q = nn.functional.normalize(dense_q, dim=1)
+
+
         #knn
         # q_queue_knn= torch.mm(feat_q, f_mem.transpose(1, 0))
         # feat_q_knn1 = f_mem[torch.argmax(q_queue_knn,1)]
@@ -225,10 +234,10 @@ class MoCo_Model(nn.Module):
         # feat_a_byol2 = self.prodictor(feat_a_knn1)
 
         #moco+byol
-        feat_q_byol1 = self.anotherPro(feat_q)
-        feat_a_byol2 = self.anotherPro(self.prodictor(self.encoder_q(x_a)))
+        # feat_q_byol1 = self.prodictor(feat_q)
+        # feat_a_byol2 = self.prodictor(self.encoder_q(x_a))
         # feat_k_byol2 = self.prodictor(self.encoder_q(x_k))
-        
+
         # feat_q_byol1 = feat_q
         # feat_a_byol2 = self.encoder_q(x_a)
 
@@ -246,10 +255,9 @@ class MoCo_Model(nn.Module):
             # x_q = x_q[shuffled_idxs]
 
             # Feature representations of the shuffled key view from the key encoder
-            feat_k = self.encoder_k(x_k)
-            feat_k = self.prodictor(feat_k)
-            feat_a_byol1 = self.prodictor(self.encoder_k(x_a))
-            feat_q_byol2 = self.prodictor(self.encoder_k(x_q))
+            # feat_k = self.encoder_k(x_k)
+            # feat_a_byol1 = self.encoder_k(x_a)
+            # feat_q_byol2 = self.encoder_k(x_q)
             # feat_k_byol1 = self.encoder_k(x_k)
 
             # reverse the shuffled samples to original position
@@ -257,19 +265,51 @@ class MoCo_Model(nn.Module):
             # feat_a_byol1 = feat_a_byol1[reverse_idxs]
             # feat_q_byol2 = feat_q_byol2[reverse_idxs]
 
+
+            k, feat_k = self.encoder_k(x_k)  # keys: NxC
+            dense_k = self.prodictor(feat_k)
+            k = nn.functional.normalize(k, dim=1)
+            dense_k, feat_k = dense_k.view(n, dim_dense, -1), feat_k.view(n, c, -1)
+            dense_k_norm = nn.functional.normalize(dense_k, dim=1)
+
+            feat_q_norm = nn.functional.normalize(feat_q, dim=1)
+            feat_k_norm = nn.functional.normalize(feat_k, dim=1)
+            cosine = torch.einsum('nca,ncb->nab', feat_q_norm, feat_k_norm)
+            pos_idx = cosine.argmax(dim=-1)
+            dense_k_norm = dense_k_norm.gather(2, pos_idx.unsqueeze(1).expand(-1, dim_dense, -1))
+
         # Compute the logits for the InfoNCE contrastive loss.
-        # logit, label, logit_change = self.InfoNCE_logits(feat_q, feat_k)
-        # logit, label = self.InfoNCE_logits(feat_q, feat_k)
-        logit1, label = self.InfoNCE_logits(feat_q, feat_k)
-        logit2 = loss_fn(feat_q_byol1, feat_a_byol1)
-        logit3 = loss_fn(feat_a_byol2, feat_q_byol2)
-        # logit2 = loss_fn(feat_q_byol1, feat_k_byol1)
-        # logit3 = loss_fn(feat_k_byol2, feat_q_byol2)
-        # logit = 0.5 * (logit2 + logit3).mean() + 0.5 * logit1
+        # positive logits: Nx1
+        l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1)
+        # negative logits: NxK
+        l_neg = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()])
 
-        logit_byol = (logit2 + logit3).mean()
-        # Update the queue/memory with the current key_encoder minibatch.
-        self.update_queue(feat_k)
+        # logits: Nx(1+K)
+        logits = torch.cat([l_pos, l_neg], dim=1)
+        # apply temperature
+        logits /= self.T
+        # labels: positive key indicators
+        labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
 
+        loss_cls = self.crit_cls(logits, labels)
+
+        ## densecl logits
+        d_pos = torch.einsum('ncm,ncm->nm', dense_q, dense_k_norm).unsqueeze(1)
+        d_neg = torch.einsum('ncm,ck->nkm', dense_q, self.queue_dense.clone().detach())
+        logits_dense = torch.cat([d_pos, d_neg], dim=1)
+        logits_dense = logits_dense / self.T
+        labels_dense = torch.zeros((n, h * w), dtype=torch.long).cuda()
+
+        loss_dense = self.crit_dense(logits_dense, labels_dense)
+
+        extra = {'qk': [q, k], 'dense_qk': [dense_q, dense_k_norm],
+                 'logits': logits, 'labels': labels}
+
+        ## regionCL
+        #if self.cutmixer:
+        #    loss_cutmix = self.cutmixer.forward_mix(
+        #        self.encoder_q, x_q, q, k, self.queue.detach())
+        #    extra.update({'loss_cutmix': loss_cutmix})
+        self._dequeue_and_enqueue(k, dense_k)
         # return logit, label, logit_change
-        return logit1, logit_byol , label
+        return loss_cls, loss_dense, extra

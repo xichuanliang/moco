@@ -17,6 +17,7 @@ from train import finetune, evaluate, pretrain, supervised
 from datasets import get_dataloaders
 from utils import *
 import model.network as models
+import model.swin_transformer as models_swin
 from model.moco import MoCo_Model
 from model.byol import Byol_Model
 from model.mocov2_byol_2t1m import MoCo_byol_2t1m_Model
@@ -25,6 +26,8 @@ from model.mocov1 import MoCov1_Model
 from model.offical_moco import Offical_MoCov1_Model
 from model.simsam import SimSam_Model
 from model.SimClr import SimClr_Model
+from model.moco_2network import MoCo_Model_2network
+from model.densecl import Densecl_Model
 
 
 warnings.filterwarnings("ignore")
@@ -40,7 +43,7 @@ parser.add_argument('--dataset', default='cifar10',
                     help='Dataset, (Options: cifar10, cifar100, stl10, imagenet, tinyimagenet).')
 parser.add_argument('--dataset_path', default=None,
                     help='Path to dataset, Not needed for TorchVision Datasets.')
-parser.add_argument('--model', default='resnet18',
+parser.add_argument('--model', default='swin_tiny_patch4_window7_224',
                     help='Model, (Options: resnet18, resnet34, resnet50, resnet101, resnet152).')
 parser.add_argument('--n_epochs', type=int, default=1000,
                     help='Number of Epochs in Contrastive Training.')
@@ -164,15 +167,24 @@ def main():
     ''' Base Encoder '''
 
     # Get available models from /model/network.py
-    model_names = sorted(name for name in models.__dict__
+    # model_names = sorted(name for name in models.__dict__
+    #                      if name.islower() and not name.startswith("__")
+    #                      and callable(models.__dict__[name]))
+
+    model_names = sorted(name for name in models_swin.__dict__
                          if name.islower() and not name.startswith("__")
-                         and callable(models.__dict__[name]))
+                         and callable(models_swin.__dict__[name]))
 
     # If model exists
+    # if any(args.model in model_name for model_name in model_names):
+    #     # Load model
+    #     base_encoder = getattr(models, args.model)(
+    #         args, num_classes=args.n_classes)  # Encoder
     if any(args.model in model_name for model_name in model_names):
         # Load model
-        base_encoder = getattr(models, args.model)(
-            args, num_classes=args.n_classes)  # Encoder
+        base_encoder = getattr(models_swin, args.model)(
+            args)  # Encoder
+        # base_encoder = models_swin.swin_tiny_patch4_window7_224(num_classes=args.num_classes).to(device)
 
     else:
         raise NotImplementedError("Model Not Implemented: {}".format(args.model))
@@ -180,16 +192,18 @@ def main():
     if not args.supervised:
         # freeze all layers but the last fc
         for name, param in base_encoder.named_parameters():
-            if name not in ['fc.weight', 'fc.bias']:
-                param.requires_grad = False
+            # if name not in ['fc.weight', 'fc.bias']:
+            #     param.requires_grad = False
+            if "head" not in name:
+                param.requires_grad_(False)
         # init the fc layer
-        init_weights(base_encoder)
+        # init_weights(base_encoder)
 
     ''' MoCo Model '''
-    # moco = MoCo_Model(args, queue_size=args.queue_size,
-    #                   momentum=args.queue_momentum, temperature=args.temperature)
+    moco = MoCo_Model(args, queue_size=args.queue_size,
+                      momentum=args.queue_momentum, temperature=args.temperature)
     # byol = Byol_Model(args, momentum=args.queue_momentum)
-    simsam = SimSam_Model(args, momentum=args.queue_momentum)
+    # simsam = SimSam_Model(args, momentum=args.queue_momentum)
     # simclr = SimClr_Model(args)
     # moco_byol_2t1m = MoCo_byol_2t1m_Model(args, queue_size=args.queue_size,
     #                   momentum=args.queue_momentum, temperature=args.temperature)
@@ -199,6 +213,11 @@ def main():
     #                   momentum=args.queue_momentum, temperature=args.temperature)
     # offical_moco = Offical_MoCov1_Model(args, queue_size=args.queue_size,
     #                   momentum=args.queue_momentum, temperature=args.temperature)
+    # moco_model_2network = MoCo_Model_2network(args, queue_size=args.queue_size,
+    #                  momentum=args.queue_momentum, temperature=args.temperature)
+    # densecl = Densecl_Model(args, queue_size=args.queue_size,
+                      # momentum=args.queue_momentum, temperature=args.temperature)
+
 
     # Place model onto GPU(s)
     if args.distributed:
@@ -220,7 +239,7 @@ def main():
         #
         # print('\nUsing', torch.cuda.device_count(), 'GPU(s).\n')
 
-        simsam.to(device)
+        moco.to(device)
         base_encoder.to(device)
 
         args.print_progress = True
@@ -239,7 +258,7 @@ def main():
 
         if not args.supervised:
             # Pretrain the encoder and projection head
-            pretrain(simsam, dataloaders, args)
+            pretrain(moco, dataloaders, args)
 
             # Load the state_dict from query encoder and load it on finetune net
             base_encoder = load_moco(base_encoder, args)

@@ -72,20 +72,22 @@ def pretrain(encoder, dataloaders, args):
             optimiser.zero_grad()
 
             # retrieve the 2 views
-            x_i, x_j = torch.split(inputs, [3, 3], dim=1)
-            # x_i, x_j, x_k = torch.split(inputs, [3, 3, 3], dim=1)
+            # x_i, x_j = torch.split(inputs, [3, 3], dim=1)
+            x_i, x_j, x_k = torch.split(inputs, [3, 3, 3], dim=1)
 
             # Get the encoder representation
             # logit, label = encoder(x_i, x_j)
-            # logit1, logit_byol, label = encoder(x_i, x_j, x_k)
-            logit = encoder(x_i, x_j)
+            logit1, logit_byol, label = encoder(x_i, x_j, x_k)
+            # logit1, logit_byol, label = encoder(x_i, x_j)
+            # logit = encoder(x_i, x_j)
+            # loss_cls, loss_dense, extra = encoder(x_i, x_j)
 
             # loss = criterion(logit, label)
-            # loss1 = criterion(logit1, label)
-            # loss2 = logit_byol
-            # loss =  1 *loss1 + 6 * loss2
-            loss = logit                       #双GPU的时候，loss直接出问题
-
+            loss1 = criterion(logit1, label)
+            loss2 = logit_byol
+            loss =  1 *loss1 + 7 * loss2
+            # loss = logit                       #双GPU的时候，loss直接出问�?
+            # loss = 0.5 * (loss_cls + loss_dense)
             loss.backward()
 
             optimiser.step()
@@ -501,7 +503,7 @@ def evaluate(encoder, dataloaders, mode, epoch, args):
 
         # Forward pass
 
-        output = encoder(inputs)
+        output= encoder(inputs)
 
         loss = criterion(output, target)
 
